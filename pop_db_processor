@@ -1,0 +1,244 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+""" csvtest.py
+Your program should meet these requirements:
+
+Be executable from the command line
+Be written in one of the following languages: BASH, Python, Ruby, PHP, Perl,
+Go, Lua, Scheme, Node
+Takes a CSV filename as a command-line argument
+(the CSV we test it with will be the file available from the link above)
+Inserts the CSV data into a MySQL database called “popdb” with username
+“pop-user” and password “pop-pw”
+Performs SQL queries on the inserted data, and then processes the data as
+necessary to provide the user with the following summary:
+    The min value of the POPESTIMATE2014 column
+    The max value for the POPESTIMATE2013 column
+    The mean and standard deviation for the POPESTIMATE2012 column
+-Christopher Welborn 12-01-2016
+"""
+
+import csv
+import os
+import sys
+from getpass import getpass, GetPassWarning
+from urllib.error import HTTPError
+from urllib.request import urlopen
+
+# Third-party packages.
+from docopt import docopt
+import MySQLdb
+
+NAME = 'SoutherLINC Code Test'
+VERSION = '0.0.1'
+VERSIONSTR = '{} v. {}'.format(NAME, VERSION)
+SCRIPT = os.path.split(os.path.abspath(sys.argv[0]))[1]
+SCRIPTDIR = os.path.abspath(sys.path[0])
+
+USAGESTR = """{versionstr}
+    Creates a SQL database from local CSV files, and then queries for the
+    min, max, and standard deviation from particular columns.
+
+    Usage:
+        {script} -h | -v
+        {script} FILE
+
+    Options:
+        FILE          : CSV file to read/parse.
+        -h,--help     : Show this help message.
+        -v,--version  : Show version.
+""".format(script=SCRIPT, versionstr=VERSIONSTR)
+
+DB = 'popdb'
+DB_USER = 'pop-user'
+DB_TABLE = 'population'
+
+
+def main(argd):
+    """ Main entry point, expects doctopt arg dict as argd. """
+    if not os.path.exists(argd['FILE']):
+        raise FileNotFoundError('Missing data file: {}'.format(argd['FILE']))
+
+    with get_db() as cur:
+        create_db_table(cur, argd['FILE'])
+        # Run desired queries/functions.
+        queries = (
+            ('POPESTIMATE2014', 'MIN'),
+            ('POPESTIMATE2013', 'MAX'),
+            ('POPESTIMATE2012', 'STD'),
+
+        )
+        for col, func in queries:
+            cur.execute('SELECT {func}({col}) from {tbl}'.format(
+                col=col,
+                func=func,
+                tbl=DB_TABLE
+            ))
+            print('{col} {func}: {result}'.format(
+                col=col,
+                func=func,
+                result=cur.fetchone()[0])
+            )
+
+        print('\nFinished.\n')
+    return 0
+
+
+def create_db_table(cur, filepath):
+    """ Ensure a fresh db table is created, deleting any existing tables.
+        ** Deleting entire tables is probably okay for this code test.
+    """
+    print('Creating table `{}`...'.format(DB_TABLE))
+
+    try:
+        cur.execute('DROP TABLE IF EXISTS `{}`'.format(DB_TABLE))
+    except MySQLdb.Warning as ex:
+        print_err('SQL Warning: {}'.format(ex))
+    # Columns and their types, for table creation and inserts from csv data.
+    popcols = (
+        ('sumlev', 'VARCHAR(3)'),
+        ('state', 'VARCHAR(2)'),
+        ('county', 'VARCHAR(3)'),
+        ('place', 'VARCHAR(5)'),
+        ('cousub', 'VARCHAR(5)'),
+        ('concit', 'VARCHAR(5)'),
+        ('prim_geoflag', 'BOOLEAN'),
+        ('funcstat', 'VARCHAR(1)'),
+        ('name', 'VARCHAR(256)'),
+        ('stname', 'VARCHAR(40)'),
+        ('census2010pop', 'INT'),
+        ('estimatesbase2010', 'INT'),
+        ('popestimate2010', 'INT'),
+        ('popestimate2011', 'INT'),
+        ('popestimate2012', 'INT'),
+        ('popestimate2013', 'INT'),
+        ('popestimate2014', 'INT'),
+    )
+    # Build table schema from popcols.
+    createsql = """
+    CREATE TABLE {tblname} (
+        id INT NOT NULL AUTO_INCREMENT,
+        {columns},
+        PRIMARY KEY ( id )
+    ) CHARACTER SET utf8
+    """.format(
+        tblname=DB_TABLE,
+        columns=',\n        '.join(
+            '{} {}'.format(name, sqltype)
+            for name, sqltype in popcols
+        )
+    )
+    cur.execute(createsql)
+
+    # Retrieve data to insert.
+    rows = list(get_csv_iter(filepath))
+    # Trim csv header.
+    rows = rows[1:]
+    # Build query string from popcols.
+    colstr = ', '.join(col for col, _ in popcols)
+    preparedstr = ', '.join('%s' for _ in popcols)
+    # Build insert command using prepared statements.
+    insertcmd = (
+        """
+    INSERT INTO {tblname} ({columns})
+        VALUES ({values})
+        """.format(
+            tblname=DB_TABLE,
+            columns=colstr,
+            values=preparedstr,
+        )
+    )
+    errs = 0
+    for row in rows:
+        try:
+            cur.execute(insertcmd, row)
+        except MySQLdb.OperationalError as ex:
+            if ex.args[0] == 1366:
+                # Incorrect integer value for column census2010pop.
+                print_err(ex.args[1])
+                errs += 1
+            else:
+                raise
+
+    print('\nTable created with {} {}.\n'.format(
+        errs,
+        'error' if errs == 1 else 'errors',
+    ))
+
+
+def get_csv_iter(filename):
+    """ Retrieve local csv data from `filename`, and return a csv iterator.
+        Possibly raises EnvironmentError if the file cannot be read.
+    """
+    try:
+        with open(filename, 'r') as f:
+            lines = f.readlines()
+    except EnvironmentError as ex:
+        raise EnvironmentError(
+            'Unable to read local csv file: {}\n{}'.format(filename, ex)
+        ) from ex
+    print('Reading csv file: {}'.format(filename))
+    return csv.reader(lines)
+
+
+def get_db():
+    """ Safely get password from the user, connect to the popdb,
+        Returns the MySQLdb database object.
+    """
+    try:
+        pw = getpass('Please enter the password for {}: '.format(DB_USER))
+    except GetPassWarning:
+        raise ValueError('Cannot safely get password input, cancelling.')
+
+    db = MySQLdb.connect(
+        host='localhost',
+        user=DB_USER,
+        passwd=pw,
+        db=DB
+    )
+    return db
+
+
+def print_err(*args, **kwargs):
+    """ A wrapper for print() that uses stderr by default. """
+    if kwargs.get('file', None) is None:
+        kwargs['file'] = sys.stderr
+    print(*args, **kwargs)
+
+
+class InvalidArg(ValueError):
+    """ Raised when the user has used an invalid argument. """
+    def __init__(self, msg=None):
+        self.msg = msg or ''
+
+    def __str__(self):
+        if self.msg:
+            return 'Invalid argument, {}'.format(self.msg)
+        return 'Invalid argument!'
+
+
+if __name__ == '__main__':
+    try:
+        mainret = main(docopt(USAGESTR, version=VERSIONSTR))
+    except MySQLdb.OperationalError as ex:
+        try:
+            errcode, errmsg = ex.args
+            print_err('SQL Error ({}): {}'.format(errcode, errmsg))
+        except ValueError:
+            print_err('SQL Error: {}'.format(ex))
+        mainret = 1
+    except ValueError as ex:
+        # Also handles InvalidArg
+        print_err(ex)
+        mainret = 1
+    except (EOFError, KeyboardInterrupt):
+        print_err('\nUser cancelled.\n')
+        mainret = 2
+    except BrokenPipeError:
+        print_err('\nBroken pipe, input/output was interrupted.\n')
+        mainret = 3
+    except EnvironmentError as ex:
+        print_err(ex)
+        mainret = 1
+    sys.exit(mainret)
