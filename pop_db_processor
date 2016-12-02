@@ -75,7 +75,7 @@ def main(argd):
             ('POPESTIMATE2013', 'MAX'),
         )
         for col, func in basic_queries:
-            cur.execute('SELECT {func}({col}) from {tbl}'.format(
+            cur.execute('SELECT FORMAT({func}({col}), 0) from {tbl}'.format(
                 col=col,
                 func=func,
                 tbl=DB_TABLE
