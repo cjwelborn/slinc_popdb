@@ -51,8 +51,8 @@ USAGESTR = """{versionstr}
 
 DB = 'popdb'
 DB_USER = 'pop-user'
-# This isn't secure. getpass(), or a locked down config file would be a safer
-# way to get the password.
+# This isn't secure. getpass(), an environment variable, or a locked down
+# config file would be a safer way to get the password.
 DB_PASS = 'pop-pw'
 DB_TABLE = 'population'
 
