@@ -37,6 +37,22 @@ These are installable with [`pip`](https://docs.python.org/3/installing/).
 * Docopt - Handles command-line argument parsing.
 * MySQLdb - Handles MySQL connections/queries.
 
+## Running:
+
+There are multiple methods for running this program. You can pass the script
+name (and any script arguments) to the python executable:
+```bash
+python3 pop_db_processor my_csv_file.csv
+```
+
+Or, you can make the script executable and run it directly:
+```bash
+# Make it executable.
+chmod +x pop_db_processor
+# Run the script.
+./pop_db_processor my_csv_file.csv
+```
+
 ## Command Help:
 ```
 Usage:
