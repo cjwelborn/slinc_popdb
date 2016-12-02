@@ -63,13 +63,11 @@ def main(argd):
     with get_db() as cur:
         create_db_table(cur, argd['FILE'])
         # Run desired queries/functions.
-        queries = (
+        basic_queries = (
             ('POPESTIMATE2014', 'MIN'),
             ('POPESTIMATE2013', 'MAX'),
-            ('POPESTIMATE2012', 'STD'),
-
         )
-        for col, func in queries:
+        for col, func in basic_queries:
             cur.execute('SELECT {func}({col}) from {tbl}'.format(
                 col=col,
                 func=func,
@@ -81,6 +79,25 @@ def main(argd):
                 result=cur.fetchone()[0])
             )
 
+        # Get mean/standard deviation for 2012.
+        col = 'POPESTIMATE2012'
+        cur.execute('SELECT FORMAT(AVG({col}), 2) FROM {tbl}'.format(
+            col=col,
+            tbl=DB_TABLE)
+        )
+        mean = cur.fetchone()[0]
+        cur.execute('SELECT FORMAT(STD({col}), 2) FROM {tbl}'.format(
+            col=col,
+            tbl=DB_TABLE)
+        )
+        std = cur.fetchone()[0]
+        stdval = float(std.replace(',', ''))
+        print('{col} MEAN: {mean} {sign}{std}'.format(
+            col=col,
+            mean=mean,
+            sign='-' if stdval < 0 else '+',
+            std=std,
+        ))
         print('\nFinished.\n')
     return 0
 
@@ -97,12 +114,12 @@ def create_db_table(cur, filepath):
         print_err('SQL Warning: {}'.format(ex))
     # Columns and their types, for table creation and inserts from csv data.
     popcols = (
-        ('sumlev', 'VARCHAR(3)'),
-        ('state', 'VARCHAR(2)'),
-        ('county', 'VARCHAR(3)'),
-        ('place', 'VARCHAR(5)'),
-        ('cousub', 'VARCHAR(5)'),
-        ('concit', 'VARCHAR(5)'),
+        ('sumlev', 'SMALLINT(3) UNSIGNED ZEROFILL'),
+        ('state', 'SMALLINT(2) UNSIGNED ZEROFILL'),
+        ('county', 'SMALLINT(3) UNSIGNED ZEROFILL'),
+        ('place', 'MEDIUMINT(5) UNSIGNED ZEROFILL'),
+        ('cousub', 'MEDIUMINT(5) UNSIGNED ZEROFILL'),
+        ('concit', 'MEDIUMINT(5) UNSIGNED ZEROFILL'),
         ('prim_geoflag', 'BOOLEAN'),
         ('funcstat', 'VARCHAR(1)'),
         ('name', 'VARCHAR(256)'),
